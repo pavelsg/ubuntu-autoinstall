@@ -48,11 +48,59 @@ class SeedScriptTest < Minitest::Test
     end
   end
 
-  def test_existing_smbios_is_not_replaced
-    _stdout, stderr, status = Open3.capture3(@env.merge('QM_CONFIG' => 'smbios1: uuid=existing'), 'bash', SCRIPT, '120', 'owner/repo', 'single-disk')
-    refute status.success?
-    assert_includes stderr, 'already has smbios1 settings'
-    refute File.readlines(@log).any? { |line| line.start_with?('set ') }
+  def test_existing_uuid_is_preserved_when_adding_seed
+    uuid = '10e77876-6ab6-48dc-888b-05df0d1f7d62'
+    _stdout, stderr, status = Open3.capture3(@env.merge('QM_CONFIG' => "smbios1: uuid=#{uuid}"), 'bash', SCRIPT, '103', 'pavelsg/ubuntu-autoinstall', 'single-disk-noipv6')
+    assert status.success?, stderr
+    fields = configured_smbios
+    assert_equal uuid, fields.fetch('uuid')
+    assert_equal '1', fields.fetch('base64')
+    assert_equal 'ds=nocloud-net;s=https://raw.githubusercontent.com/pavelsg/ubuntu-autoinstall/main/profiles/bios/single-disk-noipv6/', Base64.strict_decode64(fields.fetch('serial'))
+  end
+
+  def test_plaintext_smbios_fields_are_preserved_after_encoding
+    config = 'smbios1: manufacturer=Example Ltd,product=VM,version=1.0,sku=ABC,family=Server,base64=0'
+    _stdout, stderr, status = Open3.capture3(@env.merge('QM_CONFIG' => config), 'bash', SCRIPT, '120', 'owner/repo', 'single-disk')
+    assert status.success?, stderr
+    fields = configured_smbios
+    { 'manufacturer' => 'Example Ltd', 'product' => 'VM', 'version' => '1.0', 'sku' => 'ABC', 'family' => 'Server' }.each do |key, value|
+      assert_equal value, Base64.strict_decode64(fields.fetch(key)), key
+    end
+  end
+
+  def test_encoded_smbios_fields_are_not_double_encoded
+    manufacturer = Base64.strict_encode64('Example, Inc.')
+    config = "smbios1: manufacturer=#{manufacturer},base64=1"
+    _stdout, stderr, status = Open3.capture3(@env.merge('QM_CONFIG' => config), 'bash', SCRIPT, '120', 'owner/repo', 'single-disk')
+    assert status.success?, stderr
+    assert_equal manufacturer, configured_smbios.fetch('manufacturer')
+  end
+
+  def test_existing_nocloud_serial_can_be_updated_and_reapplied
+    original = 'ds=nocloud;s=https://example.com/old/'
+    ["serial=#{original}", "serial=#{Base64.strict_encode64(original)},base64=1"].each do |serial|
+      config = "smbios1: uuid=existing,#{serial}"
+      _stdout, stderr, status = Open3.capture3(@env.merge('QM_CONFIG' => config), 'bash', SCRIPT, '120', 'owner/repo', 'single-disk')
+      assert status.success?, stderr
+      fields = configured_smbios
+      assert_equal 'ds=nocloud-net;s=https://raw.githubusercontent.com/owner/repo/main/profiles/bios/single-disk/', Base64.strict_decode64(fields.fetch('serial'))
+      assert_equal 'existing', fields.fetch('uuid')
+      saved = fields.map { |key, value| "#{key}=#{value}" }.join(',')
+      _stdout, stderr, status = Open3.capture3(@env.merge('QM_CONFIG' => "smbios1: #{saved}"), 'bash', SCRIPT, '120', 'owner/repo', 'single-disk')
+      assert status.success?, stderr
+      assert_equal fields, configured_smbios
+    end
+  end
+
+  def test_unrelated_serial_and_unsupported_smbios_data_do_not_change_vm
+    ['serial=asset-123', "base64=1,serial=#{Base64.strict_encode64('asset-123')}",
+     'base64=invalid', 'base64=1,product=!!!', 'unknown=value',
+     'uuid=first,uuid=second', 'malformed'].each do |smbios|
+      FileUtils.rm_f(@log)
+      _stdout, _stderr, status = Open3.capture3(@env.merge('QM_CONFIG' => "smbios1: #{smbios}"), 'bash', SCRIPT, '120', 'owner/repo', 'single-disk')
+      refute status.success?, smbios
+      refute File.readlines(@log).any? { |line| line.start_with?('set ') }, smbios
+    end
   end
 
   def test_custom_ref_is_used_in_seed_url
@@ -84,5 +132,14 @@ class SeedScriptTest < Minitest::Test
     _stdout, _stderr, status = Open3.capture3(@env, 'bash', SCRIPT, '120', 'owner/repo', '../invalid')
     refute status.success?
     refute File.exist?(@log)
+  end
+
+  private
+
+  # Returns the SMBIOS properties passed to the mocked Proxmox command.
+  def configured_smbios
+    command = File.readlines(@log, chomp: true).reverse.find { |line| line.start_with?('set ') }
+    refute_nil command, 'No qm set call recorded'
+    command.split('--smbios1 ', 2).last.split(',').to_h { |field| field.split('=', 2) }
   end
 end

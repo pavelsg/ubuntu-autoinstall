@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # On the Proxmox host. Sets an autoinstall seed URL as SMBIOS system serial.
 # Selects the bios/uefi profile directory from the VM's firmware setting.
-# Existing smbios1 settings must be merged manually. No VM disks are modified here.
+# Preserves existing SMBIOS fields while adding/updating a NoCloud serial.
+# No VM disks are modified here.
 set -euo pipefail
 if (( $# < 3 || $# > 4 )); then
   echo "Usage: $0 VMID GITHUB_OWNER/REPO PROFILE [GIT_REF]" >&2
@@ -26,14 +27,62 @@ case "$BIOS" in
   ovmf) FIRMWARE=uefi ;;
   *) echo "ERROR: Unsupported VM firmware: $BIOS" >&2; exit 1 ;;
 esac
-if printf '%s\n' "$VM_CONFIG" | grep -q '^smbios1:'; then
-  echo "ERROR: VM $VMID already has smbios1 settings; back them up and merge manually." >&2
-  exit 1
-fi
 BASE="https://raw.githubusercontent.com/$REPO/$REF/profiles/$FIRMWARE/$PROFILE/"
 SEED="ds=nocloud-net;s=$BASE"
 SERIAL_B64="$(printf %s "$SEED" | base64 | tr -d '\n')"
-qm set "$VMID" --smbios1 "base64=1,serial=$SERIAL_B64"
+SMBIOS="$(printf '%s\n' "$VM_CONFIG" | sed -n 's/^smbios1: //p')"
+IFS=, read -r -a SMBIOS_FIELDS <<< "${SMBIOS:-base64=0}"
+ENCODED=0
+SEEN_KEYS=,
+# base64 applies to every SMBIOS string field, but never to the UUID.
+# Validate first so an unknown field cannot be silently dropped or reinterpreted.
+for FIELD in "${SMBIOS_FIELDS[@]}"; do
+  KEY="${FIELD%%=*}"
+  if [[ "$FIELD" != *=* || "$SEEN_KEYS" == *",$KEY,"* ]]; then
+    echo "ERROR: Malformed or duplicate SMBIOS field: $KEY" >&2
+    exit 1
+  fi
+  SEEN_KEYS+="$KEY,"
+  case "$KEY" in
+    base64)
+      ENCODED="${FIELD#*=}"
+      if [[ "$ENCODED" != 0 && "$ENCODED" != 1 ]]; then
+        echo "ERROR: Unsupported SMBIOS base64 flag: $ENCODED" >&2
+        exit 1
+      fi
+      ;;
+    uuid|serial|manufacturer|product|version|sku|family) ;;
+    *) echo "ERROR: Unsupported SMBIOS field: $KEY" >&2; exit 1 ;;
+  esac
+done
+MERGED_SMBIOS="base64=1,serial=$SERIAL_B64"
+for FIELD in "${SMBIOS_FIELDS[@]}"; do
+  KEY="${FIELD%%=*}"
+  VALUE="${FIELD#*=}"
+  case "$KEY" in
+    base64) continue ;;
+    uuid) MERGED_SMBIOS+=",$FIELD"; continue ;;
+  esac
+  if [[ "$ENCODED" == 1 ]]; then
+    if ! DECODED="$(printf %s "$VALUE" | base64 -d)"; then
+      echo "ERROR: Invalid base64 in SMBIOS field: $KEY" >&2
+      exit 1
+    fi
+  else
+    DECODED="$VALUE"
+  fi
+  if [[ "$KEY" == serial ]]; then
+    case "$DECODED" in
+      ""|ds=nocloud\;*|ds=nocloud-net\;*) continue ;;
+      *) echo "ERROR: VM $VMID has an unrelated SMBIOS serial; merge manually to avoid losing it." >&2; exit 1 ;;
+    esac
+  fi
+  if [[ "$ENCODED" != 1 ]]; then
+    VALUE="$(printf %s "$VALUE" | base64 | tr -d '\n')"
+  fi
+  MERGED_SMBIOS+=",$KEY=$VALUE"
+done
+qm set "$VMID" --smbios1 "$MERGED_SMBIOS"
 printf 'Detected VM firmware: %s\n' "$FIRMWARE"
 printf 'Configured VM %s with NoCloud URL: %s\n' "$VMID" "$BASE"
 printf 'Cloud-init requires early network/DHCP to fetch profile before installer network screen.\n'

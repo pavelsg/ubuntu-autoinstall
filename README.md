@@ -34,7 +34,7 @@ The single-disk profiles have the same non-storage settings as the corresponding
 
    The script reads the VM configuration: `bios: ovmf` selects `uefi`, while `bios: seabios` or an omitted `bios` setting selects `bios`. It does not change the VM firmware. Use `mysql-2disk` or `mysql-2disk-noipv6` for a MySQL layout. Replace the repository if using a fork; omit `main` to default to `main`.
 
-   This script **refuses** to replace an existing SMBIOS1 config. Alternatively, edit the ISO GRUB `linux` command line to include:
+   The script preserves the existing SMBIOS UUID and other fields while adding the seed URL as the system serial. An existing NoCloud serial can be updated by rerunning the script. If the serial serves another purpose, the script stops so you can merge it manually. Alternatively, edit the ISO GRUB `linux` command line to include:
 
    ```text
    autoinstall ds=nocloud\;s=https://raw.githubusercontent.com/pavelsg/ubuntu-autoinstall/main/profiles/uefi/mysql-2disk-noipv6/
