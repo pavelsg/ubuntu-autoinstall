@@ -49,4 +49,14 @@ class ProfileSettingsTest < Minitest::Test
       end
     end
   end
+
+  def test_single_disk_profiles_match_standard_mysql_profiles_outside_storage
+    %w[bios uefi].each do |firmware|
+      profiles_dir = File.expand_path('../profiles', __dir__)
+      mysql = YAML.safe_load_file(File.join(profiles_dir, "mysql-2disk-#{firmware}", 'user-data')).fetch('autoinstall')
+      single = YAML.safe_load_file(File.join(profiles_dir, "single-disk-#{firmware}", 'user-data')).fetch('autoinstall')
+      assert_equal mysql.reject { |key, _| key == 'storage' },
+                   single.reject { |key, _| key == 'storage' }, firmware
+    end
+  end
 end

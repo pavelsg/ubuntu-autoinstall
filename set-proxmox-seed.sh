@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # On the Proxmox host. Sets an autoinstall seed URL as SMBIOS system serial.
-# It replaces the VM's existing smbios1 settings; preserve UUID/other settings
-# manually if those are already configured. No VM disks are modified here.
+# Existing smbios1 settings must be merged manually. No VM disks are modified here.
 set -euo pipefail
 if (( $# < 3 || $# > 4 )); then
   echo "Usage: $0 VMID GITHUB_OWNER/REPO PROFILE [GIT_REF]" >&2
-  echo "Example: $0 120 myorg/ubuntu-proxmox-autoinstall mysql-2disk-uefi main" >&2
+  echo "Examples:" >&2
+  echo "  $0 120 pavelsg/ubuntu-autoinstall single-disk-bios main" >&2
+  echo "  $0 120 pavelsg/ubuntu-autoinstall single-disk-uefi main" >&2
+  echo "  $0 120 pavelsg/ubuntu-autoinstall mysql-2disk-uefi main" >&2
   exit 2
 fi
 VMID="$1" REPO="$2" PROFILE="$3" REF="${4:-main}"
@@ -20,7 +22,7 @@ if qm config "$VMID" | grep -q '^smbios1:'; then
 fi
 BASE="https://raw.githubusercontent.com/$REPO/$REF/profiles/$PROFILE/"
 SEED="ds=nocloud-net;s=$BASE"
-SERIAL_B64="$(printf %s "$SEED" | base64 -w0)"
+SERIAL_B64="$(printf %s "$SEED" | base64 | tr -d '\n')"
 qm set "$VMID" --smbios1 "base64=1,serial=$SERIAL_B64"
 printf 'Configured VM %s with NoCloud URL: %s\n' "$VMID" "$BASE"
 printf 'Cloud-init requires early network/DHCP to fetch profile before installer network screen.\n'
