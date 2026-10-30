@@ -1,6 +1,6 @@
 # Proxmox Ubuntu Server 26.04 Autoinstall profiles
 
-**Destructive:** all profiles wipe two virtual disks, smaller OS disk (32 GiB) and larger MySQL disk (48 GiB). Always validate on a disposable VM before production.
+**Destructive:** the MySQL profiles wipe two virtual disks; the single-disk profiles wipe `/dev/sda`. Always validate on a disposable VM before production.
 
 ## Profiles
 
@@ -10,15 +10,19 @@
 | `profiles/mysql-2disk-uefi-noipv6/` | OVMF/UEFI | disabled | 32G OS + 48G MySQL |
 | `profiles/mysql-2disk-bios/` | SeaBIOS/BIOS | enabled/default | 32G OS + 48G MySQL |
 | `profiles/mysql-2disk-bios-noipv6/` | SeaBIOS/BIOS | disabled | 32G OS + 48G MySQL |
+| `profiles/single-disk-uefi/` | OVMF/UEFI | enabled/default | `/dev/sda`, EFI and root partitions |
+| `profiles/single-disk-bios/` | SeaBIOS/BIOS | enabled/default | `/dev/sda`, BIOS boot and root partitions |
 
 Each directory contains `user-data` (`#cloud-config`) and `meta-data` for the Cloud-init NoCloud web datasource. Do not rename them to `.yaml` on the public URL. A single `autoinstall.yaml` URL by itself is not a NoCloud seed directory.
 
 All profiles use the `en_US.UTF-8` locale and US keyboard layout, select the Ubuntu Server minimal installation source, configure no proxy, and request no additional snaps. The minimal image may itself include snaps; the profiles do not remove them. The source ID depends on the ISO: confirm `ubuntu-server-minimal` appears in its `casper/install-sources.yaml` before installation. Network and identity remain interactive, and OpenSSH Server is selected for installation.
 
+The single-disk profiles use GPT and a single ext4 root filesystem occupying the remaining space after the firmware boot partition. They do not create LVM volumes or MySQL mounts. Confirm the intended disk is `/dev/sda` in the installer; other device types may use a different name.
+
 ## Setup
 
 1. Publish this directory tree in a **public GitHub repository**, preferably pinning a known Git commit/tag instead of referencing a moving branch (`main`) for production installations.
-2. Prepare a fresh Proxmox VM with **only two target disks** of 32 GiB and 48 GiB, plus the Ubuntu Server ISO as a CD-ROM. Firmware `OVMF` for `*-uefi`, `SeaBIOS` for `*-bios`. Use a network offering DHCP during the initial live boot.
+2. Prepare a fresh Proxmox VM with the Ubuntu Server ISO as a CD-ROM. For a MySQL profile, attach **only two target disks** of 32 GiB and 48 GiB. For a single-disk profile, attach one target disk that appears as `/dev/sda`. Use firmware `OVMF` for `*-uefi`, `SeaBIOS` for `*-bios`, and a network offering DHCP during the initial live boot.
 3. On the Proxmox host, set the cloud-init URL in the VM's SMBIOS serial (replace the sample repo with yours):
 
    ```bash

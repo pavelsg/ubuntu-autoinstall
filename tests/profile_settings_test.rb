@@ -19,4 +19,34 @@ class ProfileSettingsTest < Minitest::Test
       assert_equal %w[network identity], config.fetch('interactive-sections'), path
     end
   end
+
+  def test_single_disk_profiles_use_sda_without_lvm_or_mysql_mounts
+    %w[bios uefi].each do |firmware|
+      directory = File.expand_path("../profiles/single-disk-#{firmware}", __dir__)
+      config = YAML.safe_load_file(File.join(directory, 'user-data')).fetch('autoinstall')
+      actions = config.fetch('storage').fetch('config')
+      disks = actions.select { |action| action.fetch('type') == 'disk' }
+      assert_equal 1, disks.length, firmware
+      assert_equal '/dev/sda', disks.first.fetch('path'), firmware
+      assert_equal 'gpt', disks.first.fetch('ptable'), firmware
+      assert_equal 'superblock-recursive', disks.first.fetch('wipe'), firmware
+      refute actions.any? { |action| action.fetch('type').start_with?('lvm_') }, firmware
+
+      root = actions.find { |action| action['id'] == 'root_partition' }
+      assert_equal 'os_disk', root.fetch('device'), firmware
+      assert_equal(-1, root.fetch('size'), firmware)
+      assert_includes actions, { 'type' => 'format', 'id' => 'fs_root', 'fstype' => 'ext4', 'volume' => 'root_partition' }
+      mounts = actions.select { |action| action.fetch('type') == 'mount' }
+      assert_equal firmware == 'uefi' ? ['/', '/boot/efi'] : ['/'], mounts.map { |mount| mount.fetch('path') }, firmware
+      assert_equal "iid-ubuntu26-single-disk-#{firmware}", YAML.safe_load_file(File.join(directory, 'meta-data')).fetch('instance-id')
+
+      if firmware == 'bios'
+        assert_equal true, disks.first.fetch('grub_device')
+        assert_includes actions, { 'type' => 'partition', 'id' => 'bios_grub', 'device' => 'os_disk', 'size' => '1M', 'flag' => 'bios_grub' }
+      else
+        assert_includes actions, { 'type' => 'partition', 'id' => 'esp', 'device' => 'os_disk', 'size' => '1G', 'flag' => 'boot', 'grub_device' => true }
+        assert_includes actions, { 'type' => 'format', 'id' => 'fs_esp', 'fstype' => 'fat32', 'volume' => 'esp' }
+      end
+    end
+  end
 end
