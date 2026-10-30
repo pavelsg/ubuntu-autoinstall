@@ -23,6 +23,29 @@ class ProfileSettingsTest < Minitest::Test
     assert_equal instance_ids.uniq, instance_ids
   end
 
+  # Subiquity requires the path argument even for swap. Its own swap creation
+  # uses an empty string, which Curtin translates to "none" in /etc/fstab.
+  def test_mounts_have_explicit_paths_including_swap
+    Dir.glob(File.expand_path('../profiles/*/*/user-data', __dir__)).sort.each do |path|
+      actions = YAML.safe_load_file(path).fetch('autoinstall').fetch('storage').fetch('config')
+      by_id = actions.to_h { |action| [action.fetch('id'), action] }
+      mounts = actions.select { |action| action.fetch('type') == 'mount' }
+      refute_empty mounts, path
+      mounts.each do |mount|
+        message = "#{path}: #{mount.fetch('id')}"
+        assert mount.key?('path'), "#{message} must supply Subiquity's required path argument"
+        assert_kind_of String, mount.fetch('path'), message
+        filesystem = by_id.fetch(mount.fetch('device'))
+        assert_equal 'format', filesystem.fetch('type'), message
+        if filesystem.fetch('fstype') == 'swap'
+          assert_equal '', mount.fetch('path'), message
+        else
+          assert mount.fetch('path').start_with?('/'), message
+        end
+      end
+    end
+  end
+
   def test_all_profiles_have_the_required_installer_choices
     profiles = Dir.glob(File.expand_path('../profiles/*/*/user-data', __dir__)).sort
     refute_empty profiles, 'No autoinstall profiles found'
@@ -70,8 +93,8 @@ class ProfileSettingsTest < Minitest::Test
       mounts = actions.select { |action| action.fetch('type') == 'mount' }
       paths = ['/', '/boot', '/var', '/var/log', '/home']
       paths << '/boot/efi' if firmware == 'uefi'
-      assert_equal paths.sort, mounts.filter_map { |mount| mount['path'] }.sort, firmware
-      assert_includes mounts, { 'type' => 'mount', 'id' => 'mount_swap', 'device' => 'fs_os_swap' }
+      assert_equal paths.sort, mounts.map { |mount| mount.fetch('path') }.reject(&:empty?).sort, firmware
+      assert_includes mounts, { 'type' => 'mount', 'id' => 'mount_swap', 'device' => 'fs_os_swap', 'path' => '' }
 
       if firmware == 'bios'
         assert_equal true, disks.first.fetch('grub_device')

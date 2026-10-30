@@ -61,14 +61,14 @@ autoinstall:
       - {type: format, id: fs_mysql_binlog, fstype: ext4, volume: mysql_binlog}
       - {type: format, id: fs_mysql_tmp, fstype: ext4, volume: mysql_tmp}
 
-      # Mounts. Curtin populates /etc/fstab; swap is mounted without a path.
+      # Mounts. Curtin populates /etc/fstab; Subiquity requires an explicit empty path for swap.
       - {type: mount, id: mount_root, device: fs_os_root, path: /}
       - {type: mount, id: mount_boot, device: fs_boot, path: /boot}
       - {type: mount, id: mount_esp, device: fs_esp, path: /boot/efi}
       - {type: mount, id: mount_var, device: fs_os_var, path: /var}
       - {type: mount, id: mount_varlog, device: fs_os_varlog, path: /var/log}
       - {type: mount, id: mount_home, device: fs_os_home, path: /home}
-      - {type: mount, id: mount_swap, device: fs_os_swap}
+      - {type: mount, id: mount_swap, device: fs_os_swap, path: ""}
       - {type: mount, id: mount_mysql_data, device: fs_mysql_data, path: /mysql_data}
       - {type: mount, id: mount_mysql_redo, device: fs_mysql_redo, path: /mysql_redo}
       - {type: mount, id: mount_mysql_binlog, device: fs_mysql_binlog, path: /mysql_binlog}
