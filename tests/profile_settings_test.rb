@@ -5,8 +5,26 @@ require 'yaml'
 
 # Checks the installer choices shared by every NoCloud profile.
 class ProfileSettingsTest < Minitest::Test
+  def test_each_profile_has_both_firmware_flavors_and_unique_instance_ids
+    profiles_dir = File.expand_path('../profiles', __dir__)
+    instance_ids = []
+    assert_equal %w[bios uefi], Dir.children(profiles_dir).sort
+    profiles = Dir.children(File.join(profiles_dir, 'bios')).sort
+    refute_empty profiles
+    %w[bios uefi].each do |firmware|
+      directory = File.join(profiles_dir, firmware)
+      assert_equal profiles, Dir.children(directory).sort, firmware
+      profiles.each do |profile|
+        flavor = File.join(directory, profile)
+        assert File.file?(File.join(flavor, 'user-data')), flavor
+        instance_ids << YAML.safe_load_file(File.join(flavor, 'meta-data')).fetch('instance-id')
+      end
+    end
+    assert_equal instance_ids.uniq, instance_ids
+  end
+
   def test_all_profiles_have_the_required_installer_choices
-    profiles = Dir.glob(File.expand_path('../profiles/*/user-data', __dir__)).sort
+    profiles = Dir.glob(File.expand_path('../profiles/*/*/user-data', __dir__)).sort
     refute_empty profiles, 'No autoinstall profiles found'
 
     profiles.each do |path|
@@ -22,7 +40,7 @@ class ProfileSettingsTest < Minitest::Test
 
   def test_single_disk_profiles_use_sda_without_lvm_or_mysql_mounts
     %w[bios uefi].each do |firmware|
-      directory = File.expand_path("../profiles/single-disk-#{firmware}", __dir__)
+      directory = File.expand_path("../profiles/#{firmware}/single-disk", __dir__)
       config = YAML.safe_load_file(File.join(directory, 'user-data')).fetch('autoinstall')
       actions = config.fetch('storage').fetch('config')
       disks = actions.select { |action| action.fetch('type') == 'disk' }
@@ -53,8 +71,8 @@ class ProfileSettingsTest < Minitest::Test
   def test_single_disk_profiles_match_standard_mysql_profiles_outside_storage
     %w[bios uefi].each do |firmware|
       profiles_dir = File.expand_path('../profiles', __dir__)
-      mysql = YAML.safe_load_file(File.join(profiles_dir, "mysql-2disk-#{firmware}", 'user-data')).fetch('autoinstall')
-      single = YAML.safe_load_file(File.join(profiles_dir, "single-disk-#{firmware}", 'user-data')).fetch('autoinstall')
+      mysql = YAML.safe_load_file(File.join(profiles_dir, firmware, "mysql-2disk", 'user-data')).fetch('autoinstall')
+      single = YAML.safe_load_file(File.join(profiles_dir, firmware, "single-disk", 'user-data')).fetch('autoinstall')
       assert_equal mysql.reject { |key, _| key == 'storage' },
                    single.reject { |key, _| key == 'storage' }, firmware
     end

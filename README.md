@@ -6,14 +6,14 @@
 
 | Directory | Firmware | Installed IPv6 | Disk layout |
 |---|---|---|---|
-| `profiles/mysql-2disk-uefi/` | OVMF/UEFI | enabled/default | 32G OS + 48G MySQL |
-| `profiles/mysql-2disk-uefi-noipv6/` | OVMF/UEFI | disabled | 32G OS + 48G MySQL |
-| `profiles/mysql-2disk-bios/` | SeaBIOS/BIOS | enabled/default | 32G OS + 48G MySQL |
-| `profiles/mysql-2disk-bios-noipv6/` | SeaBIOS/BIOS | disabled | 32G OS + 48G MySQL |
-| `profiles/single-disk-uefi/` | OVMF/UEFI | enabled/default | `/dev/sda`, EFI and root partitions |
-| `profiles/single-disk-bios/` | SeaBIOS/BIOS | enabled/default | `/dev/sda`, BIOS boot and root partitions |
+| `profiles/uefi/mysql-2disk/` | OVMF/UEFI | enabled/default | 32G OS + 48G MySQL |
+| `profiles/uefi/mysql-2disk-noipv6/` | OVMF/UEFI | disabled | 32G OS + 48G MySQL |
+| `profiles/bios/mysql-2disk/` | SeaBIOS/BIOS | enabled/default | 32G OS + 48G MySQL |
+| `profiles/bios/mysql-2disk-noipv6/` | SeaBIOS/BIOS | disabled | 32G OS + 48G MySQL |
+| `profiles/uefi/single-disk/` | OVMF/UEFI | enabled/default | `/dev/sda`, EFI and root partitions |
+| `profiles/bios/single-disk/` | SeaBIOS/BIOS | enabled/default | `/dev/sda`, BIOS boot and root partitions |
 
-Each directory contains `user-data` (`#cloud-config`) and `meta-data` for the Cloud-init NoCloud web datasource. Do not rename them to `.yaml` on the public URL. A single `autoinstall.yaml` URL by itself is not a NoCloud seed directory.
+The `profiles/bios/` and `profiles/uefi/` directories each contain the available profiles. Each profile directory contains `user-data` (`#cloud-config`) and `meta-data` for the Cloud-init NoCloud web datasource. Pass the profile name (`mysql-2disk`, `mysql-2disk-noipv6`, or `single-disk`) to the seed script; it selects the firmware directory automatically. Do not rename the seed files to `.yaml` on the public URL. A single `autoinstall.yaml` URL by itself is not a NoCloud seed directory.
 
 All profiles use the `en_US.UTF-8` locale and US keyboard layout, select the Ubuntu Server minimal installation source, configure no proxy, and request no additional snaps. The minimal image may itself include snaps; the profiles do not remove them. The source ID depends on the ISO: confirm `ubuntu-server-minimal` appears in its `casper/install-sources.yaml` before installation. Network and identity remain interactive, and OpenSSH Server is selected for installation.
 
@@ -22,23 +22,23 @@ The single-disk profiles have the same non-storage settings as the corresponding
 ## Setup
 
 1. Publish this directory tree in a **public GitHub repository**, preferably pinning a known Git commit/tag instead of referencing a moving branch (`main`) for production installations.
-2. Prepare a fresh Proxmox VM with the Ubuntu Server ISO as a CD-ROM. For a MySQL profile, attach **only two target disks** of 32 GiB and 48 GiB. For a single-disk profile, attach one target disk that appears as `/dev/sda`. Use firmware `OVMF` for `*-uefi`, `SeaBIOS` for `*-bios`, and a network offering DHCP during the initial live boot.
+2. Prepare a fresh Proxmox VM with the Ubuntu Server ISO as a CD-ROM. For a MySQL profile, attach **only two target disks** of 32 GiB and 48 GiB. For a single-disk profile, attach one target disk that appears as `/dev/sda`. Select either `OVMF` (UEFI) or `SeaBIOS` (BIOS), and use a network offering DHCP during the initial live boot.
 3. On the Proxmox host, set the cloud-init URL in the VM's SMBIOS serial (replace the sample repo with yours):
 
    ```bash
-   ./set-proxmox-seed.sh 120 pavelsg/ubuntu-autoinstall single-disk-uefi main
+   ./set-proxmox-seed.sh 120 pavelsg/ubuntu-autoinstall single-disk main
    qm start 120
    ```
 
-   Use `single-disk-bios` for BIOS, or select any MySQL profile from the table above. Replace the repository if using a fork; omit `main` to use the default branch name.
+   The script reads the VM configuration: `bios: ovmf` selects `uefi`, while `bios: seabios` or an omitted `bios` setting selects `bios`. It does not change the VM firmware. Use `mysql-2disk` or `mysql-2disk-noipv6` for a MySQL layout. Replace the repository if using a fork; omit `main` to default to `main`.
 
    This script **refuses** to replace an existing SMBIOS1 config. Alternatively, edit the ISO GRUB `linux` command line to include:
 
    ```text
-   autoinstall ds=nocloud\;s=https://raw.githubusercontent.com/your-org/ubuntu-proxmox-autoinstall/main/profiles/mysql-2disk-uefi-noipv6/
+   autoinstall ds=nocloud\;s=https://raw.githubusercontent.com/pavelsg/ubuntu-autoinstall/main/profiles/uefi/mysql-2disk-noipv6/
    ```
 
-   GRUB must escape the semicolon (`\;`). Use the profile's trailing `/` URL, not a link directly to `user-data`.
+   GRUB must escape the semicolon (`\;`). When setting the URL manually, use `profiles/bios/PROFILE/` or `profiles/uefi/PROFILE/` for the VM's firmware and retain the trailing `/`; do not link directly to `user-data`.
 
 4. At the Ubuntu installer: provide **network settings** (`DHCP` or `Manual IPv4` with subnet, IP, gateway, DNS) and **identity** (hostname, username, password). Storage partitioning is not presented for editing. Disk wipe confirmation may still appear if `autoinstall` is not on the installer kernel command line.
 5. After installation, remove or deprioritize the ISO and reboot. Verify `lsblk`, `sudo lvs`, `ip -4 addr`, `ip route`, `resolvectl status`, and for no-IPv6 variants `cat /proc/sys/net/ipv6/conf/all/disable_ipv6`.
@@ -51,7 +51,7 @@ For a local seed ISO (can be built on Linux):
 
 ```bash
 sudo apt install cloud-image-utils
-cd profiles/mysql-2disk-uefi-noipv6
+cd profiles/uefi/mysql-2disk-noipv6
 cloud-localds seed.iso user-data meta-data
 ```
 
@@ -86,7 +86,7 @@ This sample shows the `network` contents nested under `autoinstall:`, and requir
 
 ## Add more profiles
 
-Copy an existing profile directory, change only `storage.config` and choose an appropriate boot layout. For reusable templates with same-size disks, don't use `size: smallest` / `largest`: set Proxmox virtual-disk serials and match by `serial:` instead. Use a separate folder for each profile, with both `user-data` and `meta-data` present.
+Create a directory with the same profile name under both `profiles/bios/` and `profiles/uefi/`, copying an existing profile from the corresponding firmware directory. Change `storage.config` in each flavor for its boot layout, and give each flavor a unique `meta-data` instance ID. For reusable templates with same-size disks, don't use `size: smallest` / `largest`: set Proxmox virtual-disk serials and match by `serial:` instead. Each profile directory must contain both `user-data` and `meta-data`.
 
 * For UEFI, create a FAT32 EFI System Partition at `/boot/efi` (example uses 1 GiB).
 * For BIOS with GPT, create a 1 MiB `bios_grub` partition.
