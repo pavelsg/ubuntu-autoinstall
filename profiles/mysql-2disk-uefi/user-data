@@ -5,6 +5,14 @@
 # Storage is fully automatic. Avoid exposing authentication data in public repositories.
 autoinstall:
   version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ""
+  source:
+    id: ubuntu-server-minimal
+  proxy: null
+  snaps: []
   interactive-sections: [network, identity]
   ssh:
     install-server: true

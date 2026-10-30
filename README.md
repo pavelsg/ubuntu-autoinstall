@@ -13,6 +13,8 @@
 
 Each directory contains `user-data` (`#cloud-config`) and `meta-data` for the Cloud-init NoCloud web datasource. Do not rename them to `.yaml` on the public URL. A single `autoinstall.yaml` URL by itself is not a NoCloud seed directory.
 
+All profiles use the `en_US.UTF-8` locale and US keyboard layout, select the Ubuntu Server minimal installation source, configure no proxy, and request no additional snaps. The minimal image may itself include snaps; the profiles do not remove them. The source ID depends on the ISO: confirm `ubuntu-server-minimal` appears in its `casper/install-sources.yaml` before installation. Network and identity remain interactive, and OpenSSH Server is selected for installation.
+
 ## Setup
 
 1. Publish this directory tree in a **public GitHub repository**, preferably pinning a known Git commit/tag instead of referencing a moving branch (`main`) for production installations.
@@ -87,9 +89,13 @@ Copy an existing profile directory, change only `storage.config` and choose an a
 
 ## Validation
 
-Files are YAML-syntax and action-reference checked in this bundle, but they have **not** been installed in a real VM. Validate with the official Subiquity validation script and then test in a disposable Proxmox VM:
+Run the profile setting and YAML syntax checks with Ruby (standard library only):
 
-https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-validation.html
+```bash
+ruby tests/profile_settings_test.rb
+```
+
+The profiles have **not** been installed in a real VM. Validate with the [official Subiquity validation script](https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-validation.html) and then test in a disposable Proxmox VM.
 
 References:
 - https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
