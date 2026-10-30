@@ -78,13 +78,13 @@ if (( STATIC_MODE )); then
   [[ -z "$SEED_SLOT" || "$SEED_SLOT" =~ ^(ide[0-3]|sata[0-5])$ ]] || die "--seed-slot must be ide0..3 or sata0..5."
   DNS="${DNS:-$GATEWAY}"
   SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-  HELPER="$SCRIPT_DIR/prepare_local_seed.py"
-  [[ -f "$HELPER" ]] || die "Static mode needs prepare_local_seed.py beside this script; copy the full repository."
-  for COMMAND in python3 curl genisoimage pvesm pvesh; do
-    command -v "$COMMAND" > /dev/null || die "Missing $COMMAND. Install python3 python3-yaml curl genisoimage on the Proxmox host."
+  HELPER="$SCRIPT_DIR/prepare_local_seed.pl"
+  [[ -f "$HELPER" ]] || die "Static mode needs prepare_local_seed.pl beside this script; copy the full repository."
+  for COMMAND in perl curl genisoimage pvesm pvesh; do
+    command -v "$COMMAND" > /dev/null || die "Missing $COMMAND. Run on a Proxmox host with curl and genisoimage installed."
   done
-  python3 -c 'import yaml' 2>/dev/null || die "Missing PyYAML. Install python3-yaml on the Proxmox host."
-  python3 "$HELPER" validate-network --ip "$IP" --gateway "$GATEWAY" --dns "$DNS"
+  perl -MYAML::XS=0.84 -MNetAddr::IP -MJSON::PP -e 1 2>/dev/null || die "Static mode needs Proxmox's Perl modules: YAML::XS >= 0.84, NetAddr::IP, JSON::PP (available on Proxmox VE 8+)."
+  perl "$HELPER" validate-network --ip "$IP" --gateway "$GATEWAY" --dns "$DNS"
 fi
 VM_STATUS="$(qm status "$VMID")"
 if (( STATIC_MODE )) && [[ "$VM_STATUS" != "status: stopped" ]]; then
@@ -94,7 +94,7 @@ if (( STATIC_MODE )); then
   # qm's text output omits the digest. Read it before the configuration snapshot
   # so qm set can reject any concurrent change under Proxmox's own config lock.
   CONFIG_JSON="$(pvesh get "/nodes/$(hostname -s)/qemu/$VMID/config" --output-format json)"
-  CONFIG_DIGEST="$(printf '%s\n' "$CONFIG_JSON" | python3 -c 'import json, sys; config = json.load(sys.stdin); print(config.get("digest", "") if isinstance(config, dict) else "")')"
+  CONFIG_DIGEST="$(printf '%s\n' "$CONFIG_JSON" | perl "$HELPER" read-digest)"
   [[ "$CONFIG_DIGEST" =~ ^[0-9a-fA-F]{40}$ ]] || die "Proxmox did not return a valid configuration digest."
 fi
 VM_CONFIG="$(qm config "$VMID")"
@@ -224,10 +224,10 @@ if (( STATIC_MODE )); then
       --connect-timeout 15 --max-time 120 --retry 2 \
       --output "$WORK_DIR/input/$FILE" "$BASE$FILE"
   done
-  python3 "$HELPER" render --ip "$IP" --gateway "$GATEWAY" --dns "$DNS" \
+  perl "$HELPER" render --ip "$IP" --gateway "$GATEWAY" --dns "$DNS" \
     --interface "$INTERFACE" --vmid "$VMID" --vm-config "$WORK_DIR/vm-config" \
     --input-dir "$WORK_DIR/input" --output-dir "$WORK_DIR/seed"
-  RUN_ID="$(python3 -c 'from uuid import uuid4; print(uuid4().hex)')"
+  RUN_ID="$(perl "$HELPER" new-id)"
   ISO_NAME="autoinstall-seed-$VMID-$RUN_ID.iso"
   ISO_VOLUME="$STORAGE:iso/$ISO_NAME"
   ISO_PATH="$(pvesm path "$ISO_VOLUME")"

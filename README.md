@@ -49,10 +49,10 @@ The single-disk profiles have the same non-storage settings as the corresponding
 
 The web-hosted seed is fetched **before** the installer network configuration screen, so the VM normally needs DHCP and access to GitHub first. Supply `--ip` and `--gateway` to have the Proxmox host download the profile and build a local NoCloud seed ISO instead. The VM can then read its installation and network settings without DHCP or access to GitHub. The host needs Internet access, and the VM still needs connectivity for installation updates and packages.
 
-Keep `prepare_local_seed.py` alongside `set-proxmox-seed.sh`; using a checkout of the repository is the simplest way to provide both files. Install the dependencies on the Proxmox host:
+Keep `prepare_local_seed.pl` alongside `set-proxmox-seed.sh`; using a checkout of the repository is the simplest way to provide both files. Static mode uses Perl with `YAML::XS` (0.84 or later), `NetAddr::IP`, and `JSON::PP`, available with Proxmox VE 8 and later. It does not require Python or PyYAML. Ensure the host has the download and ISO tools:
 
 ```bash
-apt install python3 python3-yaml curl genisoimage
+apt install curl genisoimage
 ```
 
 With the VM stopped, run:
@@ -118,12 +118,13 @@ Create a directory with the same profile name under both `profiles/bios/` and `p
 
 ## Validation
 
-Run the profile setting and script checks with Ruby, and the local seed generation tests with Python and PyYAML:
+Run the tests with Ruby. Local seed tests also require the same Perl modules as the helper; on a Debian development machine these are provided by `libyaml-libyaml-perl`, `libnetaddr-ip-perl`, and Perl's core `JSON::PP` module. The CLI tests mock Proxmox and network access:
 
 ```bash
 ruby tests/profile_settings_test.rb
 ruby tests/seed_script_test.rb
-python3 -m unittest discover -s tests -p 'test_*.py'
+ruby tests/local_seed_config_test.rb
+ruby tests/local_seed_cli_test.rb
 ```
 
 The profiles have **not** been installed in a real VM. Validate with the [official Subiquity validation script](https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-validation.html) and then test in a disposable Proxmox VM.
