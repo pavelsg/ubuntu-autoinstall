@@ -7,6 +7,7 @@ if (( $# < 3 || $# > 4 )); then
   echo "Usage: $0 VMID GITHUB_OWNER/REPO PROFILE [GIT_REF]" >&2
   echo "Examples:" >&2
   echo "  $0 120 pavelsg/ubuntu-autoinstall single-disk main" >&2
+  echo "  $0 120 pavelsg/ubuntu-autoinstall single-disk-noipv6 main" >&2
   echo "  $0 120 pavelsg/ubuntu-autoinstall mysql-2disk main" >&2
   echo "  $0 120 pavelsg/ubuntu-autoinstall mysql-2disk-noipv6 main" >&2
   exit 2

@@ -69,12 +69,25 @@ class ProfileSettingsTest < Minitest::Test
   end
 
   def test_single_disk_profiles_match_standard_mysql_profiles_outside_storage
-    %w[bios uefi].each do |firmware|
+    %w[bios uefi].product(['', '-noipv6']).each do |firmware, suffix|
       profiles_dir = File.expand_path('../profiles', __dir__)
-      mysql = YAML.safe_load_file(File.join(profiles_dir, firmware, "mysql-2disk", 'user-data')).fetch('autoinstall')
-      single = YAML.safe_load_file(File.join(profiles_dir, firmware, "single-disk", 'user-data')).fetch('autoinstall')
+      mysql = YAML.safe_load_file(File.join(profiles_dir, firmware, "mysql-2disk#{suffix}", 'user-data')).fetch('autoinstall')
+      single = YAML.safe_load_file(File.join(profiles_dir, firmware, "single-disk#{suffix}", 'user-data')).fetch('autoinstall')
       assert_equal mysql.reject { |key, _| key == 'storage' },
                    single.reject { |key, _| key == 'storage' }, firmware
+    end
+  end
+
+  def test_noipv6_profiles_only_add_installed_system_ipv6_configuration
+    %w[bios uefi].product(%w[mysql-2disk single-disk]).each do |firmware, profile|
+      directory = File.expand_path("../profiles/#{firmware}", __dir__)
+      standard = YAML.safe_load_file(File.join(directory, profile, 'user-data')).fetch('autoinstall')
+      noipv6 = YAML.safe_load_file(File.join(directory, "#{profile}-noipv6", 'user-data')).fetch('autoinstall')
+      assert_equal standard, noipv6.reject { |key, _| key == 'late-commands' }
+      command = noipv6.fetch('late-commands').join("\n")
+      assert_includes command, '/target/etc/sysctl.d/99-disable-ipv6.conf'
+      assert_includes command, 'net.ipv6.conf.all.disable_ipv6 = 1'
+      assert_includes command, 'net.ipv6.conf.default.disable_ipv6 = 1'
     end
   end
 end

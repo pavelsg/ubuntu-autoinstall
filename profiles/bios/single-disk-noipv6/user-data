@@ -1,0 +1,31 @@
+#cloud-config
+# DANGER: DISK ERASURE. Only for a fresh VM with its target disk at /dev/sda.
+# Network and identity are configured interactively during installation.
+# IPv6 disabled on the INSTALLED OS via /etc/sysctl.d/; installer networking is unaffected.
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ""
+  source:
+    id: ubuntu-server-minimal
+  proxy: null
+  snaps: []
+  interactive-sections: [network, identity]
+  ssh:
+    install-server: true
+  storage:
+    config:
+      - {type: disk, id: os_disk, path: /dev/sda, ptable: gpt, wipe: superblock-recursive, grub_device: true}
+      - {type: partition, id: bios_grub, device: os_disk, size: 1M, flag: bios_grub}
+      - {type: partition, id: root_partition, device: os_disk, size: -1}
+      - {type: format, id: fs_root, fstype: ext4, volume: root_partition}
+      - {type: mount, id: mount_root, device: fs_root, path: /}
+
+  late-commands:
+    - |
+      cat > /target/etc/sysctl.d/99-disable-ipv6.conf <<'EOF'
+      net.ipv6.conf.all.disable_ipv6 = 1
+      net.ipv6.conf.default.disable_ipv6 = 1
+      EOF
