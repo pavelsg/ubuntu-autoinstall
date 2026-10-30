@@ -38,25 +38,40 @@ class ProfileSettingsTest < Minitest::Test
     end
   end
 
-  def test_single_disk_profiles_use_sda_without_lvm_or_mysql_mounts
-    %w[bios uefi].each do |firmware|
-      directory = File.expand_path("../profiles/#{firmware}/single-disk", __dir__)
+  # Compare the complete OS action graph so sizes, formats, mounts and boot flags
+  # cannot drift from the matching MySQL profile when either layout is edited.
+  def test_single_disk_profiles_match_mysql_os_storage_on_sda
+    %w[bios uefi].product(['', '-noipv6']).each do |firmware, suffix|
+      directory = File.expand_path("../profiles/#{firmware}/single-disk#{suffix}", __dir__)
       config = YAML.safe_load_file(File.join(directory, 'user-data')).fetch('autoinstall')
+      mysql_path = File.expand_path("../profiles/#{firmware}/mysql-2disk#{suffix}/user-data", __dir__)
+      mysql_storage = YAML.safe_load_file(mysql_path).fetch('autoinstall').fetch('storage')
+      # Storage actions are ordered by dependency. Retain only os_disk and the
+      # actions that depend on it, excluding the entire database disk graph.
+      os_ids = ['os_disk']
+      expected_actions = mysql_storage.fetch('config').select do |action|
+        dependencies = [action['device'], action['volume'], action['volgroup'], *action.fetch('devices', [])].compact
+        belongs_to_os = action.fetch('id') == 'os_disk' || dependencies.any? { |id| os_ids.include?(id) }
+        os_ids << action.fetch('id') if belongs_to_os
+        belongs_to_os
+      end
+      expected_actions.first.delete('match')
+      expected_actions.first['path'] = '/dev/sda'
+      assert_equal mysql_storage.merge('config' => expected_actions), config.fetch('storage'), directory
+
       actions = config.fetch('storage').fetch('config')
       disks = actions.select { |action| action.fetch('type') == 'disk' }
       assert_equal 1, disks.length, firmware
       assert_equal '/dev/sda', disks.first.fetch('path'), firmware
       assert_equal 'gpt', disks.first.fetch('ptable'), firmware
       assert_equal 'superblock-recursive', disks.first.fetch('wipe'), firmware
-      refute actions.any? { |action| action.fetch('type').start_with?('lvm_') }, firmware
-
-      root = actions.find { |action| action['id'] == 'root_partition' }
-      assert_equal 'os_disk', root.fetch('device'), firmware
-      assert_equal(-1, root.fetch('size'), firmware)
-      assert_includes actions, { 'type' => 'format', 'id' => 'fs_root', 'fstype' => 'ext4', 'volume' => 'root_partition' }
+      assert_equal ['vg_os'], actions.select { |action| action['type'] == 'lvm_volgroup' }.map { |action| action.fetch('name') }
+      assert_equal 0, config.fetch('storage').fetch('swap').fetch('size')
       mounts = actions.select { |action| action.fetch('type') == 'mount' }
-      assert_equal firmware == 'uefi' ? ['/', '/boot/efi'] : ['/'], mounts.map { |mount| mount.fetch('path') }, firmware
-      assert_equal "iid-ubuntu26-single-disk-#{firmware}", YAML.safe_load_file(File.join(directory, 'meta-data')).fetch('instance-id')
+      paths = ['/', '/boot', '/var', '/var/log', '/home']
+      paths << '/boot/efi' if firmware == 'uefi'
+      assert_equal paths.sort, mounts.filter_map { |mount| mount['path'] }.sort, firmware
+      assert_includes mounts, { 'type' => 'mount', 'id' => 'mount_swap', 'device' => 'fs_os_swap' }
 
       if firmware == 'bios'
         assert_equal true, disks.first.fetch('grub_device')
